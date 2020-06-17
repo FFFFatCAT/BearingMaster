@@ -39,9 +39,9 @@ from numpy import arange, array, lexsort, ones, append, savetxt
 from scipy.optimize import fsolve
 from scipy.special import ellipk, ellipe
 
-import main
+from QT import MasterMain
 
-MainWindow_main = main.Ui_MainWindow
+MasterWindow = MasterMain.Ui_MainWindow
 
 
 def cal_cp(Dw, alpha0, Dpw, ri, re, Ep, ve, tol=0.001):
@@ -295,10 +295,10 @@ def cal_load_fre(arrays):
     ]
 
 
-class Main(QtWidgets.QMainWindow, MainWindow_main):
+class Main(QtWidgets.QMainWindow, MasterWindow):
     def __init__(self):
         QtWidgets.QMainWindow.__init__(self)
-        MainWindow_main.__init__(self)
+        MasterWindow.__init__(self)
         self.setupUi(self)
 
         self.setWindowIcon(
@@ -407,11 +407,11 @@ class Main(QtWidgets.QMainWindow, MainWindow_main):
             acc. to：
                 "Wind Turbine Design Guideline DG03: Yaw and Pitch Rolling Bearing Life"
                 "ISO 281-2007 chapter-6, Appendix B"
-            ### only calculation for ball bearing supported. not support for roller bearing.
+            ### only calculation for ball bearing supported.
 
         :return:
-            Qmax: float
-            Smax: float
+            qmax: float, maximum contact force
+            smax: float, maximum contact pressure
         """
         # read parameters and loads
         pares = self.read_pares()
@@ -451,7 +451,7 @@ class Main(QtWidgets.QMainWindow, MainWindow_main):
         r_dif = (1 / f + 2 * gamma / (1 - gamma)) / (
             4 - 1 / f + 2 * gamma / (1 - gamma)
         )
-        # 插值计算接触椭圆的长半轴与短半轴
+        # calculation of the long and short axis, a* and b*, according to DG03, table 10.
         fr = [
             0,
             0.1075,
@@ -538,8 +538,9 @@ class Main(QtWidgets.QMainWindow, MainWindow_main):
         bb1 = (bb[loc + 1] - bb[loc]) * (r_dif - fr[loc]) / (
             fr[loc + 1] - fr[loc]
         ) + bb[loc]
-        # 计算最大滚动体载荷与接触应力
+
         """
+        load splitting for multi-row bearings, but only support double row bearing now.
         Acc. to DG03 Appendix B.
         A 55%/45% thrust load sharing of the two rows is considered the best possible load distribution ratio because 
         of tolerances and variation of internal dimensions between the bearing rows.
@@ -550,15 +551,18 @@ class Main(QtWidgets.QMainWindow, MainWindow_main):
             ldf = 0.55
         else:
             QMessageBox.warning(
-                self, "Error", "<span style=' font-size:12pt;'>最多支持双列轴承计算，请检查输入参数Z0！"
+                self,
+                "Error",
+                "<span style=' font-size:12pt;'>Support up to double row bearing calculation,\n"
+                " please check the input parameter Z0!",
             )
             return
         qmax = ldf * (
             2 * f_radial * 1000 / (z * cos(a))
             + f_axial * 1000 / (z * sin(a))
             + 4 * mxy * 1000000 / (dm * z * sin(a))
-        )
-        # 滚动体最大载荷
+        )  # unit in N and Nmm
+
         cc = 0.0236 * aa1 * (qmax / r_sum) ** (1 / 3)  # 椭圆长半轴
         dd = 0.0236 * bb1 * (qmax / r_sum) ** (1 / 3)  # 椭圆短半轴
         smax = 1.5 * qmax / (self.pi * cc * dd)  # 滚动体最大接触应力
