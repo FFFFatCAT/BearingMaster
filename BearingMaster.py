@@ -26,19 +26,17 @@
 # @File    : BearingStrength.py
 
 import os
-import base64
 import sys
 import time
 from math import cos, acos, sin, tan, asin
 
-from xlrd import open_workbook
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QMessageBox, QFileDialog
 from matplotlib import pyplot as plt
-from numpy import arange, array, lexsort, ones, append, savetxt
+from numpy import arange, array, lexsort, zeros, append
 from scipy.optimize import fsolve
 from scipy.special import ellipk, ellipe
-
+from pandas import read_excel
 from QT import MasterMain
 
 MasterWindow = MasterMain.Ui_MainWindow
@@ -195,9 +193,9 @@ def cal_fc(index, alpha):
                     arges[i + 1] - arges[i]
                 ) + a_75[i]
             else:
-                with open("ErrorLog.txt", "w") as f:
+                with open("ErrorLog.txt", "a") as f:
                     f.write(
-                        time.strftime("%Y-%m-%d-%H-%M", time.localtime(time.time()))
+                        time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time()))
                         + "\n"
                     )
                     f.write(
@@ -207,8 +205,8 @@ def cal_fc(index, alpha):
                 return None
         else:
             pass
-    with open("ErrorLog.txt", "w") as f:
-        f.write(time.strftime("%Y-%m-%d-%H-%M", time.localtime(time.time())) + "\n")
+    with open("ErrorLog.txt", "a") as f:
+        f.write(time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n")
         f.write(
             "Errors occurred during the calculation of coefficient fc, check please."
         )
@@ -259,7 +257,8 @@ def cal_load_fre(arrays):
     """
     pi = acos(-1)
     # 将数组从小（负）到大排序
-    array_sorted = arrays.T[lexsort(arrays[::-1, :])].T
+    # array_sorted = arrays.T[lexsort(arrays[::-1, :])].T
+    array_sorted = arrays.T[lexsort(arrays[::-1, :])]
     load = array_sorted[0]
     rad = array_sorted[1]
     # 统计载荷值中为负的个数
@@ -579,7 +578,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             loads: {}, static loads
             show: bool, show the message box after calculation.
         Return:
-            Q： array, contact force
+            Q： array, contact force, in N.
             a: array, contact angel, in deg.
 
         """
@@ -710,9 +709,9 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         try:
             result_fsolve = fsolve(fx, [0.1, 0.1, 0.1])
         except Exception as e:
-            with open("ErrorLog.txt", "w") as f:
+            with open("ErrorLog.txt", "a") as f:
                 f.write(
-                    time.strftime("%Y-%m-%d-%H-%M", time.localtime(time.time())) + "\n"
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n"
                 )
                 f.write(repr(e))
                 f.close()
@@ -792,6 +791,36 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             )
         except TypeError:  # errors in calculation of the contact force.
             return
+        # result saved to txt file
+        with open(self.cwd + "\\result_output\\Contact_load_and_Angle.txt", "a") as f:
+            f.writelines(
+                "{:>10}{:>10}{:>10}{:>10}{:>10}{:>10}{:>10}{:>10}{:>10}\n".format(
+                    "Angel/deg",
+                    "Q11/KN",
+                    "Q22/KN",
+                    "Q33/KN",
+                    "Q44/KN",
+                    "a11/deg",
+                    "a22/deg",
+                    "a33/deg",
+                    "a33/deg",
+                )
+            )
+            for i in range(len(Q11)):
+                f.writelines(
+                    "{:>10.1f}{:>10.2f}{:>10.2f}{:>10.2f}{:>10.2f}{:>10.2f}{:>10.2f}{:>10.2f}{:>10.2f}\n".format(
+                        self.phi_ball[i],
+                        Q11[i],
+                        Q22[i],
+                        Q33[i],
+                        Q44[i],
+                        a11[i],
+                        a22[i],
+                        a33[i],
+                        a44[i],
+                    )
+                )
+            f.close()
         plt.figure()  # 创建画布
         plt.plot(
             self.phi_ball, [x / 1000 for x in Q11], color="r", label=r"Contact 1"
@@ -816,21 +845,6 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         plt.legend(loc="upper right")
         plt.show()
 
-        # with open(self.cwd + "\\result_output\\Contact_load_and_Angle.txt", "w") as f:
-        #     f.writelines(
-        #         "Angle(deg)      Q11(N)     Q22(N)     Q33(N)     Q44(N)" + "\n"
-        #     )
-        #     for i in range(len(Q11)):
-        #         f.writelines(
-        #             "%7.1f" % (self.phi_ball[i])
-        #             + "%12.1f" % (Q11[i])
-        #             + "%12.1f" % (Q22[i])
-        #             + "%12.1f" % (Q33[i])
-        #             + "%12.1f" % (Q44[i])
-        #             + "\n"
-        #         )
-        #     f.close()
-
         return
 
     def open_lrd(self):
@@ -841,7 +855,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
 
         """
         self.fileName_choose, file_type = QFileDialog.getOpenFileName(
-            self, "选取文件", self.cwd, "excel Files (*.xlsx);;All Files (*)"  # 起始路径
+            self, "选取文件", self.cwd, "Excel Files (*.xlsx;*.xls);;All Files (*)"  # 起始路径
         )  # 设置文件扩展名过滤,用双分号间隔
         if self.fileName_choose == "":
             return
@@ -894,9 +908,9 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
     #             self.alpha33.append(float(line_list[5]) * pi / 180)
     #             self.alpha44.append(float(line_list[7]) * pi / 180)
     #     except Exception as e:
-    #         with open("ErrorLog.txt", "w") as f:
+    #         with open("ErrorLog.txt", "a") as f:
     #             f.write(
-    #                 time.strftime("%Y-%m-%d-%H-%M", time.localtime(time.time())) + "\n"
+    #                 time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n"
     #             )
     #             f.write(repr(e))
     #             f.close()
@@ -911,62 +925,61 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             calculation of the equivalent lrd load.
                 1, read the initial lrd load cases
                 2, divide the load into positive and negative parts
-                3, combine all the load components
+                3, combine all the load components and calculate the possibility
         Returns:
-            combined load components and frequency, [mxy, fxy, fz, frequency]
+            combined load components and possibility, [mxy, fxy, fz, possibility]
 
         """
         if self.fileName_choose == "":
             self.open_lrd()
-        book_Excel = open_workbook(self.fileName_choose)
-        equivalent_load = {}
         try:  # read the LRD loads into array, mixed with component and frequency
-            sheet = book_Excel.sheet_by_name("叶根LRD，LDD载荷")
-            # excel数据读取
-            list_Mx = list(map(float, sheet.col_values(0, 1, 65)))
-            list_My = list(map(float, sheet.col_values(5, 1, 65)))
-            list_Fx = list(map(float, sheet.col_values(15, 1, 65)))
-            list_Fy = list(map(float, sheet.col_values(20, 1, 65)))
-            list_Fz = list(map(float, sheet.col_values(25, 1, 65)))
-
-            list_rad_Mx = list(map(float, sheet.col_values(0 + 2, 1, 65)))
-            list_rad_My = list(map(float, sheet.col_values(5 + 2, 1, 65)))
-            list_rad_Fx = list(map(float, sheet.col_values(15 + 2, 1, 65)))
-            list_rad_Fy = list(map(float, sheet.col_values(20 + 2, 1, 65)))
-            list_rad_Fz = list(map(float, sheet.col_values(25 + 2, 1, 65)))
-
-            # 以数组方式输出最终提炼的数据
-            equivalent_load["mx"] = array([list_Mx, list_rad_Mx])
-            equivalent_load["my"] = array([list_My, list_rad_My])
-            equivalent_load["fx"] = array([list_Fx, list_rad_Fx])
-            equivalent_load["fy"] = array([list_Fy, list_rad_Fy])
-            equivalent_load["fz"] = array([list_Fz, list_rad_Fz])
-        except:
-            with open("ErrorLog.txt", "w") as f:
+            lrd_load = read_excel(
+                self.fileName_choose, sheet_name="叶根LRD，LDD载荷", nrows=64
+            ).fillna(0)
+        except Exception as e:
+            with open("ErrorLog.txt", "a") as f:
                 f.write(
-                    time.strftime("%Y-%m-%d-%H-%M", time.localtime(time.time())) + "\n"
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n"
                 )
-                f.write("载荷数据读取出错\n")
+                f.write("Error reading lrd loads: %s\n" % repr(e))
                 f.close()
                 QMessageBox.warning(
                     self,
                     "Error",
-                    "载荷数据页有问题，请对应检查以下项目：\n"
-                    "1 载荷数据页名称为“叶根LRD，LDD载荷”;\n"
-                    "2 第一行应为“Blade 1 Mx [kNm]  Time at level   Revs[rad]    Revs at level per bin[deg/s]”",
+                    "Error reading lrd loads, please check the format:\n"
+                    "1 sheet name: “叶根LRD，LDD载荷”;\n"
+                    "2 first row:“Blade 1 Mx [kNm]  Time at level   Revs[rad]    Revs at level per bin[deg/s]...”",
                 )
             return
-        # 啦啦，文件读入没有错误的时候就可以继续载荷计算啦
-        eqv_load_table = ones([2, 10])  # 对应参考文献[1]中的'等效疲劳载荷'的上表
-        for i, name in enumerate(["mx", "my", "fx", "fy", "fz"]):
-            eqv_load = equivalent_load[name]
-            eqv_load_data = cal_load_fre(eqv_load)
-            eqv_load_table[0][2 * i + 0] = eqv_load_data[0]  # eqv_load_pos
-            eqv_load_table[1][2 * i + 0] = eqv_load_data[1]  # eqv_load_neg
-            eqv_load_table[0][2 * i + 1] = eqv_load_data[2]  # sum_frequency_pos
-            eqv_load_table[1][2 * i + 1] = eqv_load_data[3]  # sum_frequency_neg
-            self.N = eqv_load_data[4]  # total equivalent rotations
-        # 排列组合的工况表
+        # sort and combine
+        components, frequencies = (0, 5, 15, 20, 25), (2, 7, 17, 22, 27)
+        component_possibility = zeros([2, 10])
+        for i in range(5):
+            l_p, n_p, l_n, n_n = 0, 0, 0, 0
+            for j in range(64):
+                if lrd_load.iloc[j, components[i]] < 0:
+                    l_n += (
+                        lrd_load.iloc[j, components[i]] ** 3
+                        * lrd_load.iloc[j, frequencies[i]]
+                        / 2
+                        / self.pi
+                    )
+                    n_n += lrd_load.iloc[j, frequencies[i]] / 2 / self.pi
+                else:
+                    l_p += (
+                        lrd_load.iloc[j, components[i]] ** 3
+                        * lrd_load.iloc[j, frequencies[i]]
+                        / 2
+                        / self.pi
+                    )
+                    n_p += lrd_load.iloc[j, frequencies[i]] / 2 / self.pi
+            component_possibility[0, 2 * i] = -((-l_n / n_n) ** (1 / 3))
+            component_possibility[0, 2 * i + 1] = n_n / (n_n + n_p)
+            component_possibility[1, 2 * i] = (l_p / n_p) ** (1 / 3)
+            component_possibility[1, 2 * i + 1] = n_p / (n_n + n_p)
+        # 许用寿命，总圈数
+        self.N = n_n + n_p
+        # 排列组合工况表
         load_combine = []  # 对应参考文献[1]中的'等效疲劳载荷'的下表
         for mx in range(2):
             for my in range(2):
@@ -976,20 +989,20 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
                             load_combine = append(
                                 load_combine,
                                 [
-                                    eqv_load_table[mx, 0],
-                                    eqv_load_table[my, 2],
-                                    eqv_load_table[fx, 4],
-                                    eqv_load_table[fy, 6],
-                                    eqv_load_table[fz, 8],
-                                    eqv_load_table[mx, 1]
-                                    * eqv_load_table[my, 3]
-                                    * eqv_load_table[fx, 5]
-                                    * eqv_load_table[fy, 7]
-                                    * eqv_load_table[fz, 9],
+                                    component_possibility[mx, 0],
+                                    component_possibility[my, 2],
+                                    component_possibility[fx, 4],
+                                    component_possibility[fy, 6],
+                                    component_possibility[fz, 8],
+                                    component_possibility[mx, 1]
+                                    * component_possibility[my, 3]
+                                    * component_possibility[fx, 5]
+                                    * component_possibility[fy, 7]
+                                    * component_possibility[fz, 9],
                                 ],
                             )
         load_combine = load_combine.reshape([32, 6])  # [mx, my, fx, fy, fz ,frequency]
-        load_lc = ones([32, 4])
+        load_lc = zeros([32, 4])
         for i in range(32):
             load_lc[i, 0] = (load_combine[i, 0] ** 2 + load_combine[i, 1] ** 2) ** (
                 1 / 2
@@ -1223,7 +1236,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         # list_l10mri_temp = [1000000 * i for i in list_l10mri]
         # list_l10ri_temp = [1000000 * i for i in list_l10ri]
         # with open(
-        #         self.cwd + "\\result_output\\l10mr and l10r of each loadcases.txt", "w"
+        #         self.cwd + "\\result_output\\l10mr and l10r of each loadcases.txt", "a"
         # ) as f:
         #     f.writelines("frequency    l10r    l10mr" + "\n")
         #     for i in range(32):
@@ -1420,7 +1433,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             list_l10ri_temp = [1000000 * i for i in list_l10ri]
             with open(
                 self.cwd + "\\result_output\\l10mr and l10r of each loadcases_FEM.txt",
-                "w",
+                "a",
             ) as f:
                 f.writelines("frequency    l10r    l10mr    result_file_name" + "\n")
                 for i in range(FEM_num):
@@ -1444,9 +1457,9 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
                 f.close()
 
         except Exception as e:
-            with open("ErrorLog.txt", "w") as f:
+            with open("ErrorLog.txt", "a") as f:
                 f.write(
-                    time.strftime("%Y-%m-%d-%H-%M", time.localtime(time.time())) + "\n"
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n"
                 )
                 f.write(repr(e))
                 f.close()
