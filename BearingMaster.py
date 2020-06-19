@@ -1014,7 +1014,18 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             load_lc[i, 3] = load_combine[i, 5]
         return load_lc
 
-    def cal_l10(self, pares, loads):
+    def cal_l10mr(self, pares, loads, mf_1, mf_2):
+        """
+            calculation of the modified reference rating life according to ISO 16281.
+        Args:
+            pares: {}, parameters of the bearing
+            loads: {}, equivalent lrd load
+            mf_1: float, life modification factor for reliability
+            mf_2: float, life modification factor, based on a systems approach of life calculation
+
+        Returns:
+            l10mr: float, modified reference rating life
+        """
         if not pares == {}:
             alpha = pares["alpha"]
             dw = pares["dw"]
@@ -1039,48 +1050,6 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             + (z2 / cal_ca(fc, alpha, z2, dw)) ** (10 / 3)
         ) ** (-3 / 10)
 
-        # calculation of basic dynamic load rating for thrust ball bearing, according to ISO16281-chapter 4.3.1.3.
-        if not alpha == self.pi / 2:
-            Q_ci = (
-                Ca
-                / (z * sin(alpha))
-                * (
-                    1
-                    + (
-                        ((1 - gamma) / (1 + gamma)) ** 1.72
-                        * (ri / re * (2 * re - dw) / 2 * ri - dw) ** 0.41
-                    )
-                    ** (10 / 3)
-                )
-                ** (3 / 10)
-            )
-            Q_ce = (
-                Ca
-                / (z * sin(alpha))
-                * (
-                    1
-                    + (
-                        ((1 - gamma) / (1 + gamma)) ** 1.72
-                        * (ri / re * (2 * re - dw) / 2 * ri - dw) ** 0.41
-                    )
-                    ** (-10 / 3)
-                )
-                ** (3 / 10)
-            )
-        else:
-            Q_ci = (
-                Ca
-                / z
-                * (1 + (((ri / re * (2 * re - dw) / 2 * ri - dw) ** 0.41) ** (10 / 3)))
-                ** (3 / 10)
-            )
-            Q_ce = (
-                Ca
-                / z
-                * (1 + (((ri / re * (2 * re - dw) / 2 * ri - dw) ** 0.41) ** (-10 / 3)))
-                ** (3 / 10)
-            )
-
         # calculation of dynamic equivalent rolling element load, according to ISO16281 chapter 4.3.2
         Q11, Q22, Q33, Q44, a11, a22, a33, a44 = self.cal_qj(pares, loads, show=False)
         pitch_type = self.combo_pitch_type.currentText()
@@ -1095,14 +1064,14 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             m3 = 3
             m4 = 1 / 3
         Qei_R1 = (sum([Q11[i] ** m1 for i in range(len(Q11))]) / len(Q11)) ** m2
-        Qeo_R1 = (sum([Q11[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** (m4)
+        Qeo_R1 = (sum([Q11[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** m4
         Qei_R2 = (sum([Q22[i] ** m1 for i in range(len(Q11))]) / len(Q11)) ** m2
-        Qeo_R2 = (sum([Q22[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** (m4)
+        Qeo_R2 = (sum([Q22[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** m4
         Qei_R3 = (sum([Q33[i] ** m1 for i in range(len(Q11))]) / len(Q11)) ** m2
-        Qeo_R3 = (sum([Q33[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** (m4)
+        Qeo_R3 = (sum([Q33[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** m4
         Qei_R4 = (sum([Q44[i] ** m1 for i in range(len(Q11))]) / len(Q11)) ** m2
-        Qeo_R4 = (sum([Q44[i] ** 3 for i in range(len(Q11))]) / len(Q11)) ** (m4)
-        # calculation of the basic dynamic load rating Qc
+        Qeo_R4 = (sum([Q44[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** m4
+        # calculation of basic dynamic load rating for thrust ball bearing, according to ISO16281-chapter 4.3.1.3.
         if not alpha == self.pi / 2:
             Qci = (
                 Ca
@@ -1139,7 +1108,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
                 * (1 + ((ri / re * (2 * re - dw) / (2 * ri - dw)) ** 0.41) ** (10 / 3))
                 ** (3 / 10)
             )
-            Qci = (
+            Qce = (
                 Ca
                 / z
                 * (1 + ((ri / re * (2 * re - dw) / (2 * ri - dw)) ** 0.41) ** (-10 / 3))
@@ -1169,32 +1138,48 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         L10mr_inter_R2 = (Ca / Pref_R2) ** 3
         L10mr_inter_R3 = (Ca / Pref_R3) ** 3
         L10mr_inter_R4 = (Ca / Pref_R4) ** 3
-        #
-        # # 从计算的四个点中取出寿命最小的
-        mf_1 = 0.685  # modification factor  quote:唐静--0.685是滚道硬度修正系数
+        # 从计算的四个点中取出寿命最小的,加上修正系数
+
+        # mf_1 = 0.685  # modification factor  quote:唐静--0.685是滚道硬度修正系数
         # mf_2 = 0.45  # modification factor  quote:唐静--文献看到，润滑修正系数建议0.3-0.6之间，取了中间值，和天马刚好对上，于是加上此系数0.45
-        mf_2 = 1.0  # 段师傅说我们不进行修正，交给轴承厂家进行修正
+        # mf_2 = 1.0  # 段师傅说我们不进行修正，交给轴承厂家进行修正
         #
         L10mr = (
             min(L10mr_inter_R1, L10mr_inter_R2, L10mr_inter_R3, L10mr_inter_R4)
             * mf_1
             * mf_2
         )
-        return L10mr, mf_1
+        return L10mr
 
     def cal_life(self):
+        """
+            calculation of the bearing life according to ISO281, ISO16281.
+        Returns:
+            basic and modified bearing life, l10r and l10mr
+
+        """
+        try:
+            mf_1 = float(self.para_factor1.text())
+            mf_2 = float(self.para_factor2.text())
+        except ValueError:
+            with open("ErrorLog.txt", "a") as f:
+                f.write(
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n"
+                )
+                f.write("Error reading bearing parameters.\n")
+                f.close()
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    "<span style=' font-size:12pt;'>Error reading bearing parameters！",
+                )
 
         pares = self.read_pares()
         try:
             load_lc = self.cal_equivalent_load()
         except TypeError:
             return  # without loads for calculation, return
-        list_l10mr = []
-        list_l10r = []
-        frequency = []
-
-        list_l10mri = []
-        list_l10ri = []
+        list_l10mr, list_l10r, frequency, list_l10mri, list_l10ri = [], [], [], [], []
 
         for i in range(32):
             loads = {}
@@ -1203,9 +1188,8 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
                 loads["mxy"] = load_lc[i, 0]
                 loads["fxy"] = load_lc[i, 1]
                 loads["fz"] = load_lc[i, 2]
-                # Q11, Q22, Q33, Q44, a11, a22, a33, a44 = self.cal_qj(pares, loads)
+                l10mri = self.cal_l10mr(pares, loads, mf_1, mf_2)
 
-                l10mri, mf_1 = self.cal_l10(pares, loads)
                 l10mri_inter = loads_frequency / l10mri
 
                 l10ri = l10mri / mf_1
