@@ -588,7 +588,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             """
                 牛顿迭代法待求解函数,通过迭代输入变量[a, r, theta]解方程，使径向力、轴向力、弯矩与输入载荷匹配。
             Args:
-                x: list, [a, r, theta]
+                x: array, [a, r, theta]
                     a: float, 外圈轴向位移
                     r: float, 外圈径向位置
                     theta: float, 角位移
@@ -708,7 +708,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         Kn = cal_cp(Dw, alpha0, Dpw, ri, re, Ep, ve)
         # calculation of the a, r, theta
         try:
-            result_fsolve = fsolve(fx, [0.1, 0.1, 0.1])
+            r_initial = fsolve(fx, array([0.1, 0.1, 0.1]))
         except Exception as e:
             with open("ErrorLog.txt", "a") as f:
                 f.write(
@@ -724,7 +724,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
                 return None
         Q11, Q22, Q33, Q44 = [], [], [], []
         a11, a22, a33, a44 = [], [], [], []
-        aa, rr, theta = result_fsolve[0], result_fsolve[1], result_fsolve[2]
+        aa, rr, theta = r_initial[0], r_initial[1], r_initial[2]
         self.phi_ball = []
         for i in arange(1, Z + 1, 1):
             phi = self.pi * 2 / Z * i
@@ -1213,6 +1213,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         self.result_l10r_SF.setText("%.3f" % float(l10r_SF))
         self.result_l10mr_life.setText("%.0f" % float(l10mr_weighted))
         self.result_l10mr_SF.setText("%.3f" % float(l10mr_SF))
+        QMessageBox.information(self, "Done", '<span style=" font-size:12pt;">滚道寿命计算完成！')
         return
 
     def cal_l10_FEM(self):
