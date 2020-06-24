@@ -1213,7 +1213,9 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         self.result_l10r_SF.setText("%.3f" % float(l10r_SF))
         self.result_l10mr_life.setText("%.0f" % float(l10mr_weighted))
         self.result_l10mr_SF.setText("%.3f" % float(l10mr_SF))
-        QMessageBox.information(self, "Done", '<span style=" font-size:12pt;">滚道寿命计算完成！')
+        QMessageBox.information(
+            self, "Done", '<span style=" font-size:12pt;">滚道寿命计算完成！'
+        )
         return
 
     def cal_l10_FEM(self):
