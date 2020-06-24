@@ -214,7 +214,7 @@ def cal_fc(index, alpha):
     return None
 
 
-def cal_ca(fc, alpha, Z, Dw, bm=1.3):
+def cal_ca(alpha, Z, Dw, gamma, bm=1.3):
     """
         calculation of the basic dynamic axial load rating according to ISO281 chapter 6.1.
     pares:
@@ -226,6 +226,7 @@ def cal_ca(fc, alpha, Z, Dw, bm=1.3):
         Ca: float, basic dynamic axial load rating
 
     """
+    fc = cal_fc(gamma, alpha)
     if Dw <= 25.4:
         return [
             bm * fc * Z ** (2 / 3) * Dw ** 1.8
@@ -301,7 +302,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         self.setupUi(self)
 
         self.setWindowIcon(
-            QtGui.QIcon(r"D:\OneDrive\Code\BearingMaster\Data\myico.ico")
+            QtGui.QIcon(r"D:\OneDrive\Code\BearingMaster\Data\bearing.ico")
         )
         png = QtGui.QPixmap(r"D:\OneDrive\Code\BearingMaster\Data\PB.png")
         self.label_pic.setPixmap(png)
@@ -1014,41 +1015,22 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
             load_lc[i, 3] = load_combine[i, 5]
         return load_lc
 
-    def cal_l10mr(self, pares, loads, mf_1, mf_2):
+    def cal_l10mr(self, Ca, Qci, Qce, pares, loads, mf_1, mf_2):
         """
             calculation of the modified reference rating life according to ISO 16281.
         Args:
-            pares: {}, parameters of the bearing
+            Ca: float, basic dynamic axial load rating
+            Qci: float, inner basic dynamic load rating
+            Qce: float, outer basic dynamic load rating
+            pares: {}, bearing parameters
             loads: {}, equivalent lrd load
             mf_1: float, life modification factor for reliability
             mf_2: float, life modification factor, based on a systems approach of life calculation
 
         Returns:
+            l10r: float, basic reference rating life
             l10mr: float, modified reference rating life
         """
-        if not pares == {}:
-            alpha = pares["alpha"]
-            dw = pares["dw"]
-            dpw = pares["dpw"]
-            z = pares["z0"]
-            z1 = pares["z1"]
-            z2 = pares["z2"]
-            ri = pares["fi"] * dw
-            re = pares["fe"] * dw
-            gamma = dw * cos(alpha) / dpw
-        else:
-            return
-
-        try:
-            fc = cal_fc(gamma, alpha)
-        except TypeError:
-            return
-        # calculation of basic dynamic axial load rating, according to ISO281-chapter 6.1.2, only support bearing
-        # with 2 raceway  now.
-        Ca = (z1 + z2) * (
-            (z1 / cal_ca(fc, alpha, z1, dw)) ** (10 / 3)
-            + (z2 / cal_ca(fc, alpha, z2, dw)) ** (10 / 3)
-        ) ** (-3 / 10)
 
         # calculation of dynamic equivalent rolling element load, according to ISO16281 chapter 4.3.2
         Q11, Q22, Q33, Q44, a11, a22, a33, a44 = self.cal_qj(pares, loads, show=False)
@@ -1071,7 +1053,90 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         Qeo_R3 = (sum([Q33[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** m4
         Qei_R4 = (sum([Q44[i] ** m1 for i in range(len(Q11))]) / len(Q11)) ** m2
         Qeo_R4 = (sum([Q44[i] ** m3 for i in range(len(Q11))]) / len(Q11)) ** m4
-        # calculation of basic dynamic load rating for thrust ball bearing, according to ISO16281-chapter 4.3.1.3.
+
+        # calculation of the basic reference rating life L10r
+        L10r_R1 = ((Qci / Qei_R1) ** (-10 / 3) + (Qce / Qeo_R1) ** (-10 / 3)) ** (
+            -9 / 10
+        )
+        L10r_R2 = ((Qci / Qei_R2) ** (-10 / 3) + (Qce / Qeo_R2) ** (-10 / 3)) ** (
+            -9 / 10
+        )
+        L10r_R3 = ((Qci / Qei_R3) ** (-10 / 3) + (Qce / Qeo_R3) ** (-10 / 3)) ** (
+            -9 / 10
+        )
+        L10r_R4 = ((Qci / Qei_R4) ** (-10 / 3) + (Qce / Qeo_R4) ** (-10 / 3)) ** (
+            -9 / 10
+        )
+        # calculation of the dynamic equivalent reference load
+        Pref_R1 = Ca / L10r_R1 ** (1 / 3)
+        Pref_R2 = Ca / L10r_R2 ** (1 / 3)
+        Pref_R3 = Ca / L10r_R3 ** (1 / 3)
+        Pref_R4 = Ca / L10r_R4 ** (1 / 3)
+
+        L10mr_inter_R1 = (Ca / Pref_R1) ** 3
+        L10mr_inter_R2 = (Ca / Pref_R2) ** 3
+        L10mr_inter_R3 = (Ca / Pref_R3) ** 3
+        L10mr_inter_R4 = (Ca / Pref_R4) ** 3
+        # 从计算的四个点中取出寿命最小的,加上修正系数
+        return (
+            min(L10r_R1, L10r_R2, L10r_R3, L10r_R4),
+            min(L10mr_inter_R1, L10mr_inter_R2, L10mr_inter_R3, L10mr_inter_R4)
+            * mf_1
+            * mf_2,
+        )
+
+    def cal_life(self):
+        """
+            calculation of the bearing life according to ISO281, ISO16281.
+        Returns:
+            basic and modified bearing life, l10r and l10mr
+
+        """
+        # 1, read the modification factor
+        # mf_1 = 0.685  # modification factor  quote:唐静--0.685是滚道硬度修正系数
+        # mf_2 = 0.45  # modification factor  quote:唐静--文献看到，润滑修正系数建议0.3-0.6之间，取了中间值，和天马刚好对上，于是加上此系数0.45
+        # mf_2 = 1.0  # 段师傅说我们不进行修正，交给轴承厂家进行修正
+        try:
+            mf_1 = float(self.para_factor1.text())
+            mf_2 = float(self.para_factor2.text())
+        except ValueError:
+            with open("ErrorLog.txt", "a") as f:
+                f.write(
+                    time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n"
+                )
+                f.write("Error reading bearing parameters.\n")
+                f.close()
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    "<span style=' font-size:12pt;'>Error reading bearing parameters！",
+                )
+            return
+        # 2, read the bearing parameters
+        pares = self.read_pares()
+        if not pares == {}:
+            z1 = pares["z1"]
+            z2 = pares["z2"]
+            alpha = pares["alpha"]
+            dw = pares["dw"]
+            dpw = pares["dpw"]
+            z = pares["z0"]
+            ri = pares["fi"] * dw
+            re = pares["fe"] * dw
+            gamma = dw * cos(alpha) / dpw
+        else:
+            return
+        # 3, calculate the equivalent lrd load
+        try:
+            load_lc = self.cal_equivalent_load()
+        except TypeError:
+            return
+        # 4, calculate the basic dynamic axial load rating Ca
+        Ca = (z1 + z2) * (
+            (z1 / cal_ca(alpha, z1, dw, gamma)) ** (10 / 3)
+            + (z2 / cal_ca(alpha, z2, dw, gamma)) ** (10 / 3)
+        ) ** (-3 / 10)
+        # 5, calculate the basic dynamic load rating for thrust ball bearing, according to ISO16281-chapter 4.3.1.3.
         if not alpha == self.pi / 2:
             Qci = (
                 Ca
@@ -1114,71 +1179,7 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
                 * (1 + ((ri / re * (2 * re - dw) / (2 * ri - dw)) ** 0.41) ** (-10 / 3))
                 ** (3 / 10)
             )
-        # calculation of the basic reference rating life L10r
-        L10r_R1 = ((Qci / Qei_R1) ** (-10 / 3) + (Qce / Qeo_R1) ** (-10 / 3)) ** (
-            -9 / 10
-        )
-        L10r_R2 = ((Qci / Qei_R2) ** (-10 / 3) + (Qce / Qeo_R2) ** (-10 / 3)) ** (
-            -9 / 10
-        )
-        L10r_R3 = ((Qci / Qei_R3) ** (-10 / 3) + (Qce / Qeo_R3) ** (-10 / 3)) ** (
-            -9 / 10
-        )
-        L10r_R4 = ((Qci / Qei_R4) ** (-10 / 3) + (Qce / Qeo_R4) ** (-10 / 3)) ** (
-            -9 / 10
-        )
-        # calculation of the dynamic equivalent reference load
-        Pref_R1 = Ca / L10r_R1 ** (1 / 3)
-        Pref_R2 = Ca / L10r_R2 ** (1 / 3)
-        Pref_R3 = Ca / L10r_R3 ** (1 / 3)
-        Pref_R4 = Ca / L10r_R4 ** (1 / 3)
-        #
-        # L10mr中间变量 , EQ(33)
-        L10mr_inter_R1 = (Ca / Pref_R1) ** 3
-        L10mr_inter_R2 = (Ca / Pref_R2) ** 3
-        L10mr_inter_R3 = (Ca / Pref_R3) ** 3
-        L10mr_inter_R4 = (Ca / Pref_R4) ** 3
-        # 从计算的四个点中取出寿命最小的,加上修正系数
 
-        # mf_1 = 0.685  # modification factor  quote:唐静--0.685是滚道硬度修正系数
-        # mf_2 = 0.45  # modification factor  quote:唐静--文献看到，润滑修正系数建议0.3-0.6之间，取了中间值，和天马刚好对上，于是加上此系数0.45
-        # mf_2 = 1.0  # 段师傅说我们不进行修正，交给轴承厂家进行修正
-        #
-        L10mr = (
-            min(L10mr_inter_R1, L10mr_inter_R2, L10mr_inter_R3, L10mr_inter_R4)
-            * mf_1
-            * mf_2
-        )
-        return L10mr
-
-    def cal_life(self):
-        """
-            calculation of the bearing life according to ISO281, ISO16281.
-        Returns:
-            basic and modified bearing life, l10r and l10mr
-
-        """
-        try:
-            mf_1 = float(self.para_factor1.text())
-            mf_2 = float(self.para_factor2.text())
-        except ValueError:
-            with open("ErrorLog.txt", "a") as f:
-                f.write(
-                    time.strftime("%Y-%m-%d %H:%M", time.localtime(time.time())) + "\n"
-                )
-                f.write("Error reading bearing parameters.\n")
-                f.close()
-                QMessageBox.warning(
-                    self,
-                    "Error",
-                    "<span style=' font-size:12pt;'>Error reading bearing parameters！",
-                )
-
-        pares = self.read_pares()
-        try:
-            load_lc = self.cal_equivalent_load()
-        except TypeError:
-            return  # without loads for calculation, return
         list_l10mr, list_l10r, frequency, list_l10mri, list_l10ri = [], [], [], [], []
 
         for i in range(32):
@@ -1188,16 +1189,13 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
                 loads["mxy"] = load_lc[i, 0]
                 loads["fxy"] = load_lc[i, 1]
                 loads["fz"] = load_lc[i, 2]
-                l10mri = self.cal_l10mr(pares, loads, mf_1, mf_2)
+                l10ri, l10mri = self.cal_l10mr(Ca, Qci, Qce, pares, loads, mf_1, mf_2)
 
-                l10mri_inter = loads_frequency / l10mri
+                # l10mri_inter = loads_frequency / l10mri
+                # l10ri_inter = loads_frequency / l10ri
 
-                l10ri = l10mri / mf_1
-                l10ri_inter = loads_frequency / l10ri
-
-                list_l10mr.append(l10mri_inter)
-                list_l10r.append(l10ri_inter)
-
+                list_l10mr.append(loads_frequency / l10mri)
+                list_l10r.append(loads_frequency / l10ri)
                 frequency.append(loads_frequency)
                 # 每个工况的修正基本额定寿命l10mr及基本额定寿命l10r
                 list_l10mri.append(l10mri)
@@ -1215,32 +1213,6 @@ class Main(QtWidgets.QMainWindow, MasterWindow):
         self.result_l10r_SF.setText("%.3f" % float(l10r_SF))
         self.result_l10mr_life.setText("%.0f" % float(l10mr_weighted))
         self.result_l10mr_SF.setText("%.3f" % float(l10mr_SF))
-
-        # 每个工况的修正基本额定寿命l10mr及基本额定寿命l10r
-        # list_l10mri_temp = [1000000 * i for i in list_l10mri]
-        # list_l10ri_temp = [1000000 * i for i in list_l10ri]
-        # with open(
-        #         self.cwd + "\\result_output\\l10mr and l10r of each loadcases.txt", "a"
-        # ) as f:
-        #     f.writelines("frequency    l10r    l10mr" + "\n")
-        #     for i in range(32):
-        #         if self.eqv_loadcase[i, 0] >= 0.01:
-        #             f.writelines(
-        #                 str(round(frequency[i], 3))
-        #                 + "    "
-        #                 + str(int(list_l10ri_temp[i]))
-        #                 + "    "
-        #                 + str(int(list_l10mri_temp[i]))
-        #                 + "\n"
-        #             )
-        #
-        #     f.writelines("\n" + "------------总体寿命--------------" + "\n")
-        #     f.writelines("许用寿命 N     " + "%.0f" % float(self.N) + "\n")
-        #     f.writelines("L10r寿命       " + "%.0f" % float(l10r_weighted) + "\n")
-        #     f.writelines("L10r安全系数   " + "%.3f" % float(l10r_SF) + "\n")
-        #     f.writelines("L10mr寿命      " + "%.0f" % float(l10mr_weighted) + "\n")
-        #     f.writelines("L10mr安全系数   " + "%.3f" % float(l10mr_SF) + "\n")
-        #     f.close()
         return
 
     def cal_l10_FEM(self):
